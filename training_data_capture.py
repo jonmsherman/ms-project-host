@@ -2,6 +2,7 @@ import serial
 import sys
 import time
 import csv
+import os
 
 SERIAL_PORT = "COM4"
 BAUD_RATE = 115200
@@ -80,11 +81,13 @@ def main():
     try:
         time.sleep(1.5)
         ser.reset_input_buffer()
+        file_exists = os.path.isfile(filename)
 
-        with open(filename, "w", newline="") as f:
+        with open(filename, "a", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["s1", "s2", "s3", "gesture"])
-
+            if not file_exists:
+                writer.writerow(["s1", "s2", "s3", "gesture"])
+                
             valid_data_points = 0
 
             while True:
