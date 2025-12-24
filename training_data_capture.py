@@ -96,9 +96,6 @@ def main():
                 s1, s2, s3 = parsed_line
 
                 if not gesture_validation_function(s1, s2, s3):
-                    dropped += 1
-                    if dropped % 50 == 0:
-                        print(f"Invalid ({s1:.3f}, {s2:.3f}, {s3:.3f})")
                     continue
 
                 writer.writerow([f"{s1:.4f}", f"{s2:.4f}", f"{s3:.4f}", gesture_input])
