@@ -1,36 +1,49 @@
-# Touch Gesture Data Capture (STM32 + Python)
+# Touch Gesture ML Pipeline (STM32 + Python + TensorFlow)
 
-This repository contains a **Python-based data capture pipeline** for collecting touch/gesture sensor data streamed over **UART from an STM32** and saving **clean, filtered training data** for machine-learning models.
+This repository contains an **end‑to‑end pipeline** for collecting touch‑gesture sensor data from an **STM32**, training a **neural network in TensorFlow**, and exporting weights for **embedded inference**.
 
-The system is designed to:
-- Read deterministic UART output from an STM32
-- Validate and filter samples by gesture-specific rules
-- Save normalized sensor data (`0..1`) to CSV
-- Keep datasets clean and consistent for NN training
+The project is split into two main stages:
 
----
-
-## Overview
-
-**Data flow:**
-
-```
-STM32 Sensors → UART → Python Script → Filtered CSV → ML Training
-```
-
-- STM32 sends sensor data in a fixed format:
-  ```
-  s1=0.5,s2=0.5,s3=0.5
-  ```
-- Python script:
-  - Parses each line
-  - Applies gesture-specific filtering rules
-  - Saves only valid samples
-  - Drops noisy / mislabeled data automatically
+1. **Data Capture (UART → CSV)**
+2. **Neural Network Training & Evaluation**
 
 ---
 
-## Supported Gestures
+## Repository Contents
+
+```
+.
+├── training_data_capture.py   # UART data capture + gesture filtering
+├── gesture_nn.py              # Neural network training + evaluation
+├── README.md
+```
+
+---
+
+## 1. Data Capture: `training_data_capture.py`
+
+This script connects to an STM32 over **UART**, parses normalized sensor readings, filters them using strict gesture rules, and writes **clean labeled data** to CSV.
+
+### Data Flow
+
+```
+STM32 Sensors → UART → Python → Filtered CSV
+```
+
+### Expected UART Format
+
+STM32 must stream data in the following format:
+
+```
+s1=0.25,s2=0.03,s3=0.02
+```
+
+- Sensor values **must already be normalized to 0.0 – 1.0**
+- Each line represents a single sample
+
+---
+
+### Supported Gestures
 
 Only the following gestures are allowed:
 
@@ -41,137 +54,172 @@ Only the following gestures are allowed:
 - Right Light
 - Right Hard
 - Middle
-- Indeterminate (catch-all / none-of-the-above)
+- Indeterminate (catch‑all)
 
-Gesture names are **case-insensitive** on the command line.
-
----
-
-## Sensor Value Assumptions
-
-- UART sensor values are **normalized to `0..1`**
-- Example:
-  ```
-  s1=0.25,s2=0.03,s3=0.02
-  ```
-- All filtering rules operate directly in `0..1` space
+Gesture names are **case‑sensitive** and must match exactly.
 
 ---
 
-## Gesture Filtering Rules
+### Gesture Filtering
 
-Each gesture has a strict acceptance rule.  
-Samples that do **not** match the selected gesture are **discarded**.
+Each gesture has a strict acceptance rule (threshold‑based).
 
-Example rules (simplified):
-
+Example:
 - **Left Light**
   - `s1 ∈ [0.1, 0.3]`
   - `s2 ≤ 0.1`
   - `s3 ≤ 0.1`
 
-- **Hard Touch**
-  - `s1 ≥ 0.7`
-  - `s2 ≥ 0.7`
-  - `s3 ≥ 0.7`
+Samples that do **not** match the selected gesture are **discarded**.
 
-### Indeterminate (Catch-All)
+**Indeterminate** is treated specially:
+> A sample is kept *only if it matches none of the other gesture rules.*
 
-`Indeterminate` is treated as **none-of-the-above**:
-
-> A sample is kept *only if it does not match ANY other gesture rule.*
-
-This prevents clean gesture data from polluting the indeterminate class.
+This prevents class contamination.
 
 ---
 
-## Usage
+### Install Dependencies
 
-### Install dependencies
 ```bash
 pip install pyserial
 ```
 
-### Run data capture
+---
+
+### Run Data Capture
+
 ```bash
-python capture_gesture.py "Left Light"
+python training_data_capture.py "Left Light"
 ```
 
 This will create:
+
 ```
 left_light.csv
 ```
 
-### Example output CSV
+Example output:
+
 ```csv
 s1,s2,s3,gesture
 0.2431,0.0214,0.0189,Left Light
 0.2512,0.0198,0.0221,Left Light
 ```
 
-- Values are saved in **0..1**
-- Only valid samples are written
-
 ---
 
-## Configuration
+### Configuration
 
-Edit these constants at the top of `capture_gesture.py` if needed:
+Edit these constants at the top of `training_data_capture.py`:
 
 ```python
-SERIAL_PORT = "COM5"
+SERIAL_PORT = "COM4"
 BAUD_RATE   = 115200
-MAX_SAMPLES = 2000   # 0 = unlimited
+SAMPLE_SIZE = 4000
 ```
 
 ---
 
-## File Naming Convention
+## 2. Neural Network Training: `gesture_nn.py`
 
-Output files are generated automatically:
+This script trains a **fully‑connected neural network** using TensorFlow/Keras and evaluates it on **train / validation / test** splits.
 
+### Model Architecture
+
+- Input: 3 sensor values (`s1, s2, s3`)
+- Hidden layer: Dense(5) + ReLU
+- Output layer: Dense(8) (logits)
+
+```text
+3 → 5 → 8
 ```
-<gesture_name_lowercase_with_underscores>.csv
-```
 
-Examples:
-- `left_light.csv`
-- `hard_touch.csv`
-- `indeterminate.csv`
+- Loss: `SparseCategoricalCrossentropy(from_logits=True)`
+- Optimizer: Adam
+- Output uses **logits** (no softmax)
 
 ---
 
-## Version Control
+### Dataset Loading
 
-Generated CSV files are ignored via `.gitignore`:
+Datasets are loaded from Hugging Face:
 
-```gitignore
-*.csv
+- `gesture_dataset_train.csv`
+- `gesture_dataset_val.csv`
+- `gesture_dataset_test.csv`
+
+Each file contains:
+
+```csv
+s1,s2,s3,label
 ```
 
-If CSVs were previously committed, remove them with:
+---
+
+### Install Dependencies
+
 ```bash
-git rm --cached *.csv
+pip install numpy pandas tensorflow
 ```
 
 ---
 
-## Intended Use
+### Run Training
 
-This repo is intended for:
-- Collecting clean training data
-- Feeding TensorFlow / PyTorch models
-- Exporting weights to embedded inference (STM32)
+```bash
+python gesture_nn.py
+```
 
-It is **not** a general-purpose serial logger — it is intentionally strict to keep datasets high-quality.
+The script will:
+
+1. Train for 200 epochs
+2. Report final training & validation accuracy
+3. Evaluate on a held‑out test set
+4. Print **C‑compatible weight arrays** for embedded inference
+
+---
+
+### Example Output
+
+```
+Final val accuracy: 0.9825
+Test accuracy: 0.9781
+```
+
+Followed by:
+
+```c
+float W1[3][5] = { ... };
+float B1[5]    = { ... };
+float W2[5][8] = { ... };
+float B2[8]    = { ... };
+```
+
+These arrays can be copied directly into STM32 firmware.
 
 ---
 
 ## Typical Workflow
 
-1. Capture data for each gesture
-2. Combine CSVs into a training dataset
-3. Train NN (Python)
-4. Export weights
-5. Run inference on STM32
-6. Validate predictions over UART
+1. Flash STM32 with UART streaming firmware
+2. Capture data per gesture using `training_data_capture.py`
+3. Merge CSVs into labeled datasets
+4. Train the network with `gesture_nn.py`
+5. Export weights to C
+6. Run inference on STM32
+7. Validate predictions over UART
+
+---
+
+## Notes
+
+- Generated CSV files should be ignored in git
+- This pipeline is **intentionally strict** to keep datasets clean
+- Designed for **embedded ML**, not generic serial logging
+
+---
+
+## License
+
+MIT (or project‑specific)
